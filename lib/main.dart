@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   runApp(const SitBreakApp());
@@ -33,9 +35,11 @@ class LanguageScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('Select Your Language\nاختر اللغة',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center),
+              const Text(
+                'Select Your Language\nاختر اللغة',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 40),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(55)),
@@ -75,7 +79,6 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   double workMinutes = 25;
   double breakMinutes = 5;
-  String selectedTone = 'Default Bell';
 
   @override
   Widget build(BuildContext context) {
@@ -104,16 +107,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label: '${breakMinutes.toInt()} mins',
               onChanged: (val) => setState(() => breakMinutes = val),
             ),
-            const Divider(),
-            const Text('Alarm Tone / نغمة المنبه', style: TextStyle(fontSize: 16)),
-            DropdownButton<String>(
-              value: selectedTone,
-              isExpanded: true,
-              items: ['Default Bell', 'Digital Beep', 'Soft Chime']
-                  .map((tone) => DropdownMenuItem(value: tone, child: Text(tone)))
-                  .toList(),
-              onChanged: (val) => setState(() => selectedTone = val!),
-            ),
             const SizedBox(height: 50),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -127,13 +120,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     builder: (context) => TimerScreen(
                       workTime: workMinutes.toInt() * 60,
                       breakTime: breakMinutes.toInt() * 60,
-                      tone: selectedTone,
                     ),
                   ),
                 );
               },
-              child: const Text('Start App / بدء التطبيق',
-                  style: TextStyle(fontSize: 18, color: Colors.white)),
+              child: const Text(
+                'Start App / بدء التطبيق',
+                style: TextStyle(fontSize: 18, color: Colors.white),
+              ),
             ),
           ],
         ),
@@ -145,49 +139,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
 class TimerScreen extends StatefulWidget {
   final int workTime;
   final int breakTime;
-  final String tone;
 
   const TimerScreen({
     super.key,
     required this.workTime,
     required this.breakTime,
-    required this.tone,
   });
 
   @override
   State<TimerScreen> createState() => _TimerScreenState();
 }
 
-class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
+class _TimerScreenState extends State<TimerScreen> {
   late int remainingSeconds;
   bool isWorking = true;
-  bool isRunning = false;
-  bool isPhoneActive = true; 
+  bool isPhoneMoving = false;    
+  
   Timer? timer;
+  StreamSubscription? accelerometerSubscription;
+  final AudioPlayer audioPlayer = AudioPlayer();
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     remainingSeconds = widget.workTime;
-    _startMainTimer();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    setState(() {
-      isPhoneActive = state == AppLifecycleState.resumed;
+    
+    // مراقبة حركة الهاتف عبر المستشعرات (حتى لو كنت خارج التطبيق وتستخدم الهاتف)
+    accelerometerSubscription = accelerometerEvents.listen((AccelerometerEvent event) {
+      double totalMovement = event.x.abs() + event.y.abs() + event.z.abs();
+      bool moving = totalMovement > 11.5;
+      
+      if (moving != isPhoneMoving) {
+        setState(() {
+          isPhoneMoving = moving;
+        });
+      }
     });
+
+    _startAutoTimer();
   }
 
-  void _startMainTimer() {
+  void _startAutoTimer() {
     timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (isPhoneActive && isRunning) {
+      if (isPhoneMoving) {
         setState(() {
           if (remainingSeconds > 0) {
             remainingSeconds--;
           } else {
+            // انتهى الوقت: إصدار صوت تنبيه والتبديل بين العمل والاستراحة
+            _playAlarmSound();
             isWorking = !isWorking;
             remainingSeconds = isWorking ? widget.workTime : widget.breakTime;
           }
@@ -196,10 +196,19 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     });
   }
 
+  void _playAlarmSound() async {
+    try {
+      await audioPlayer.play(UrlSource('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'));
+    } catch (e) {
+      debugPrint("Error playing sound: $e");
+    }
+  }
+
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     timer?.cancel();
+    accelerometerSubscription?.cancel();
+    audioPlayer.dispose();
     super.dispose();
   }
 
@@ -219,40 +228,44 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              SwitchListTile(
-                title: Text(isRunning ? 'Timer Active (Running)' : 'Timer Paused (Stopped)',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: isRunning ? Colors.green : Colors.red)),
-                value: isRunning,
-                onChanged: (val) {
-                  setState(() {
-                    isRunning = val;
-                  });
-                },
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isPhoneMoving ? Colors.green.shade50 : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: isPhoneMoving ? Colors.green : Colors.orange, width: 2),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      isPhoneMoving 
+                          ? '🟢 المؤقت يعمل (الهاتف يتحرك بيدك)' 
+                          : '🟡 المؤقت متوقف (الهاتف موضوع بلا حركة)',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold, 
+                        color: isPhoneMoving ? Colors.green.shade800 : Colors.orange.shade800
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      isPhoneMoving ? '✓ يتم احتساب وقت عملك لأنك تستخدم الهاتف' : '✗ توقف العد لعدم وجود حركة للجهاز',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: isPhoneMoving ? Colors.green.shade700 : Colors.orange.shade700),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 40),
               Text(
                 '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
                 style: const TextStyle(fontSize: 70, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 20),
-              Text(
-                isWorking ? 'Focus on your work!' : 'Take a nice break!',
-                style: const TextStyle(fontSize: 18, color: Colors.grey),
-              ),
-              const SizedBox(height: 40),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(200, 50),
-                  backgroundColor: isRunning ? Colors.red : Colors.green,
-                ),
-                onPressed: () {
-                  setState(() {
-                    isRunning = !isRunning;
-                  });
-                },
-                icon: Icon(isRunning ? Icons.pause : Icons.play_arrow, color: Colors.white),
-                label: Text(isRunning ? 'Pause / إيقاف' : 'Resume / استئناف',
-                    style: const TextStyle(fontSize: 18, color: Colors.white)),
+              const Text(
+                'يمكنك الخروج من التطبيق، طالما أن الهاتف يتحرك بيدك سيستمر العد، وسيصدر صوت تنبيه تلقائي عند انتهاء الوقت!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey),
               ),
             ],
           ),
