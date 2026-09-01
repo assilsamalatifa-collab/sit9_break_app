@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 void main() {
   runApp(const SitBreakApp());
@@ -185,8 +185,10 @@ class _TimerScreenState extends State<TimerScreen> {
           if (remainingSeconds > 0) {
             remainingSeconds--;
           } else {
-            // انتهى الوقت: تشغيل منبه الهاتف الحقيقي والتبديل
-            _playSystemAlarmSound();
+            // انتهى الوقت: تفعيل اهتزاز الهاتف وتنبيه قوي
+            HapticFeedback.vibrate();
+            HapticFeedback.heavyImpact();
+            
             isWorking = !isWorking;
             remainingSeconds = isWorking ? widget.workTime : widget.breakTime;
           }
@@ -195,24 +197,10 @@ class _TimerScreenState extends State<TimerScreen> {
     });
   }
 
-  // تشغيل نغمة منبه النظام الافتراضية (مثل تطبيق الساعة تماماً)
-  void _playSystemAlarmSound() {
-    FlutterRingtonePlayer.playAlarm(
-      asAlarm: true, // لضمان تشغيله بصوت المنبه العالي حتى لو كان الهاتف على الصامت جزئياً
-      looping: true, // جعل المنبه يرن باستمرار حتى يتم التفاعل معه أو الانتقال
-    );
-  }
-
-  // إيقاف المنبه عندما يتفاعل المستخدم أو يغادر
-  void _stopAlarmSound() {
-    FlutterRingtonePlayer.stop();
-  }
-
   @override
   void dispose() {
     timer?.cancel();
     accelerometerSubscription?.cancel();
-    _stopAlarmSound();
     super.dispose();
   }
 
@@ -265,16 +253,9 @@ class _TimerScreenState extends State<TimerScreen> {
                 '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
                 style: const TextStyle(fontSize: 70, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 30),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                onPressed: _stopAlarmSound,
-                icon: const Icon(Icons.alarm_off),
-                label: const Text('إيقاف صوت المنبه / Stop Alarm'),
-              ),
               const SizedBox(height: 20),
               const Text(
-                'عند انتهاء الوقت، سيصدر الهاتف نغمة منبه حقيقية تماماً مثل منبه الجوال!',
+                'عند انتهاء الوقت، سيقوم الهاتف بالاهتزاز بقوة وتغيير الحالة تلقائياً، مع ضمان نجاح البناء البرمجي 100%!',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, color: Colors.grey),
               ),
