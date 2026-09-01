@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 void main() {
   runApp(const SitBreakApp());
@@ -157,14 +157,13 @@ class _TimerScreenState extends State<TimerScreen> {
   
   Timer? timer;
   StreamSubscription? accelerometerSubscription;
-  final AudioPlayer audioPlayer = AudioPlayer();
 
   @override
   void initState() {
     super.initState();
     remainingSeconds = widget.workTime;
     
-    // مراقبة حركة الهاتف عبر المستشعرات (حتى لو كنت خارج التطبيق وتستخدم الهاتف)
+    // مراقبة حركة الهاتف عبر المستشعرات
     accelerometerSubscription = accelerometerEvents.listen((AccelerometerEvent event) {
       double totalMovement = event.x.abs() + event.y.abs() + event.z.abs();
       bool moving = totalMovement > 11.5;
@@ -186,8 +185,8 @@ class _TimerScreenState extends State<TimerScreen> {
           if (remainingSeconds > 0) {
             remainingSeconds--;
           } else {
-            // انتهى الوقت: إصدار صوت تنبيه والتبديل بين العمل والاستراحة
-            _playAlarmSound();
+            // انتهى الوقت: تشغيل منبه الهاتف الحقيقي والتبديل
+            _playSystemAlarmSound();
             isWorking = !isWorking;
             remainingSeconds = isWorking ? widget.workTime : widget.breakTime;
           }
@@ -196,19 +195,24 @@ class _TimerScreenState extends State<TimerScreen> {
     });
   }
 
-  void _playAlarmSound() async {
-    try {
-      await audioPlayer.play(UrlSource('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'));
-    } catch (e) {
-      debugPrint("Error playing sound: $e");
-    }
+  // تشغيل نغمة منبه النظام الافتراضية (مثل تطبيق الساعة تماماً)
+  void _playSystemAlarmSound() {
+    FlutterRingtonePlayer.playAlarm(
+      asAlarm: true, // لضمان تشغيله بصوت المنبه العالي حتى لو كان الهاتف على الصامت جزئياً
+      looping: true, // جعل المنبه يرن باستمرار حتى يتم التفاعل معه أو الانتقال
+    );
+  }
+
+  // إيقاف المنبه عندما يتفاعل المستخدم أو يغادر
+  void _stopAlarmSound() {
+    FlutterRingtonePlayer.stop();
   }
 
   @override
   void dispose() {
     timer?.cancel();
     accelerometerSubscription?.cancel();
-    audioPlayer.dispose();
+    _stopAlarmSound();
     super.dispose();
   }
 
@@ -261,9 +265,16 @@ class _TimerScreenState extends State<TimerScreen> {
                 '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
                 style: const TextStyle(fontSize: 70, fontWeight: FontWeight.bold),
               ),
+              const SizedBox(height: 30),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                onPressed: _stopAlarmSound,
+                icon: const Icon(Icons.alarm_off),
+                label: const Text('إيقاف صوت المنبه / Stop Alarm'),
+              ),
               const SizedBox(height: 20),
               const Text(
-                'يمكنك الخروج من التطبيق، طالما أن الهاتف يتحرك بيدك سيستمر العد، وسيصدر صوت تنبيه تلقائي عند انتهاء الوقت!',
+                'عند انتهاء الوقت، سيصدر الهاتف نغمة منبه حقيقية تماماً مثل منبه الجوال!',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, color: Colors.grey),
               ),
